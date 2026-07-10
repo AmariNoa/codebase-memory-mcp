@@ -16,6 +16,7 @@
 
 #include "sqlite_writer.h"
 #include "foundation/constants.h"
+#include "foundation/compat_fs.h"
 #include "foundation/compat_thread.h"
 #include "foundation/profile.h"
 
@@ -2206,7 +2207,10 @@ struct cbm_db_writer {
 };
 
 cbm_db_writer_t *cbm_writer_open(const char *path) {
-    FILE *fp = fopen(path, "wb");
+    /* cbm_fopen (not raw fopen) so a Windows DB path exceeding MAX_PATH is
+     * routed through the \\?\ extended-length wide open — the index dump writes
+     * the SQLite file directly here, bypassing store.c's sqlite open. */
+    FILE *fp = cbm_fopen(path, "wb");
     if (!fp) {
         return NULL;
     }
