@@ -89,6 +89,36 @@ static inline wchar_t *cbm_utf8_to_wide_path(const char *utf8) {
     if (w[0] == L'\\' && w[1] == L'\\' && (w[2] == L'?' || w[2] == L'.') && w[3] == L'\\') {
         return w;
     }
+    /* \\?\ paths require backslash separators; normalize any forward slashes
+     * (our paths are built with "%s/%s"). */
+    for (wchar_t *p = w; *p; p++) {
+        if (*p == L'/') {
+            *p = L'\\';
+        }
+    }
+    int is_unc = (w[0] == L'\\' && w[1] == L'\\');
+    int is_drive = ((w[0] >= L'A' && w[0] <= L'Z') || (w[0] >= L'a' && w[0] <= L'z')) &&
+                   w[1] == L':' && w[2] == L'\\';
+    if (is_unc || is_drive) {
+        /* Absolute path: prefix directly WITHOUT GetFullPathNameW. Its input is
+         * bound by MAX_PATH unless already \\?\-prefixed, so calling it on the
+         * long absolute paths this helper exists for would fail — the very case
+         * we must handle. Collapse duplicate backslashes first (a "%s/%s" join
+         * over a trailing separator yields "\\", invalid inside a \\?\ path),
+         * preserving the two leading backslashes of a UNC name. */
+        size_t start = is_unc ? 2 : 0;
+        wchar_t *dst = w + start;
+        for (wchar_t *p = w + start; *p; p++) {
+            if (*p == L'\\' && dst > w + start && dst[-1] == L'\\') {
+                continue;
+            }
+            *dst++ = *p;
+        }
+        *dst = L'\0';
+        return cbm_win_prefix_longpath(w);
+    }
+    /* Relative or unusual shape (input within MAX_PATH): resolve to absolute via
+     * GetFullPathNameW, then prefix. */
     DWORD need = GetFullPathNameW(w, 0, NULL, NULL); /* required size incl. NUL */
     if (need == 0) {
         return w; /* best effort */
@@ -103,6 +133,8 @@ static inline wchar_t *cbm_utf8_to_wide_path(const char *utf8) {
         return w;
     }
     free(w);
+    /* full uses backslashes from GetFullPathNameW; forward-slash normalization
+     * above does not apply to it, but GetFullPathNameW never emits '/'. */
     return cbm_win_prefix_longpath(full);
 }
 

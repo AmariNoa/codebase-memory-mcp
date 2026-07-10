@@ -111,7 +111,7 @@ def main():
         with McpServer(binary, cache_dir=cache) as s:
             s.initialize()
             resp = s.call_tool("index_repository", {"repo_path": repo}, timeout=180)
-            _, err = s.tool_text(resp)
+            idx_txt, err = s.tool_text(resp)
             if err:
                 print("RED: index_repository error: %r" % err)
                 print(s.stderr_text())
@@ -124,7 +124,19 @@ def main():
                 return 1
             projects = json.loads(lp_txt).get("projects") or []
             if not projects:
+                # Diagnostics: index reports success but nothing was persisted to
+                # the long cache path — surface the index response, server stderr,
+                # and whether any .db actually landed under the cache dir.
                 print("RED: no project listed after index")
+                print("index response text: %r" % (idx_txt or "")[:800])
+                print("server stderr:\n%s" % s.stderr_text())
+                dbs = []
+                walk_root = ("\\\\?\\" + cache) if os.name == "nt" else cache
+                for dirpath, _dirs, files in os.walk(walk_root):
+                    for fn in files:
+                        if fn.endswith(".db"):
+                            dbs.append(os.path.join(dirpath, fn))
+                print("db files found under cache dir: %r" % dbs)
                 return 1
             p = projects[0]
             nodes = p.get("nodes") or 0
