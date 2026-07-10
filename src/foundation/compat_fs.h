@@ -56,6 +56,17 @@ int cbm_rmdir(const char *path);
  * On POSIX, delegates to fopen. mode must be an ASCII string. */
 FILE *cbm_fopen(const char *path, const char *mode);
 
+/* Rename/replace a file, overwriting an existing destination.
+ * Windows: MoveFileExW with \\?\ normalization (long-path safe).
+ * POSIX: rename(). Returns 0 on success, non-zero on error. */
+int cbm_rename(const char *src, const char *dst);
+
+/* Return a heap copy of a UTF-8 filesystem path in a form safe to hand to
+ * path-consuming C libraries (e.g. sqlite3_open_v2). Windows: the \\?\
+ * extended-length UTF-8 path (bypasses MAX_PATH). POSIX: a plain strdup.
+ * Caller frees. Returns NULL only on allocation failure. */
+char *cbm_fs_longpath_utf8(const char *path);
+
 /* Execute a command without shell interpretation.
  * argv is a NULL-terminated array: {"cmd", "arg1", "arg2", NULL}.
  * Returns the process exit code, or -1 on fork/exec failure.

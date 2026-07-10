@@ -63,6 +63,7 @@ enum {
 #include "store/store.h"
 #include "foundation/platform.h"
 #include "foundation/compat.h"
+#include "foundation/compat_fs.h"
 #include "foundation/log.h"
 #include "foundation/compat_regex.h"
 #include "foundation/str_util.h"
@@ -631,8 +632,17 @@ static cbm_store_t *store_open_internal(const char *path, bool in_memory) {
         flags |= SQLITE_OPEN_MEMORY;
     }
 
-    int rc = sqlite3_open_v2(path, &s->db, flags, NULL);
+    const char *open_path = path;
+    char *norm = NULL;
+    if (path && !in_memory) {
+        norm = cbm_fs_longpath_utf8(path);
+        if (norm) {
+            open_path = norm;
+        }
+    }
+    int rc = sqlite3_open_v2(open_path, &s->db, flags, NULL);
     if (rc != SQLITE_OK) {
+        free(norm);
         free(s);
         return NULL;
     }
@@ -640,6 +650,7 @@ static cbm_store_t *store_open_internal(const char *path, bool in_memory) {
     if (path && !in_memory) {
         s->db_path = heap_strdup(path);
     }
+    free(norm);
 
     /* Security: block ATTACH/DETACH to prevent file creation via SQL injection.
      * The authorizer runs inside SQLite's query planner — no string-level bypass. */
@@ -766,7 +777,9 @@ cbm_store_t *cbm_store_open_path_query(const char *db_path) {
      *
      * No SQLITE_OPEN_CREATE on either path — a missing DB must return NULL
      * (no ghost .db for unknown/unindexed projects). */
-    int rc = sqlite3_open_v2(db_path, &s->db, SQLITE_OPEN_READONLY, NULL);
+    char *q_norm = cbm_fs_longpath_utf8(db_path);
+    int rc = sqlite3_open_v2(q_norm ? q_norm : db_path, &s->db, SQLITE_OPEN_READONLY, NULL);
+    free(q_norm);
     if (rc == SQLITE_OK) {
         /* Force first DB access so a read-only-FS WAL failure surfaces now. */
         if (sqlite3_exec(s->db, "SELECT 1 FROM sqlite_master LIMIT 1;", NULL, NULL, NULL) !=
@@ -1058,16 +1071,18 @@ int cbm_store_dump_to_file(cbm_store_t *s, const char *dest_path) {
     char *sl = strrchr(dir, '/');
     if (sl) {
         *sl = '\0';
-        (void)cbm_mkdir(dir);
+        (void)cbm_mkdir_p(dir, 0755);
     }
 
     /* Write to temp file for atomic swap */
     char tmp_path[CBM_SZ_1K];
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", dest_path);
-    (void)unlink(tmp_path);
+    (void)cbm_unlink(tmp_path);
 
     sqlite3 *dest_db = NULL;
-    int rc = sqlite3_open(tmp_path, &dest_db);
+    char *d_norm = cbm_fs_longpath_utf8(tmp_path);
+    int rc = sqlite3_open(d_norm ? d_norm : tmp_path, &dest_db);
+    free(d_norm);
     if (rc != SQLITE_OK) {
         store_set_error(s, "dump: cannot open temp file");
         return CBM_STORE_ERR;
@@ -1077,7 +1092,7 @@ int cbm_store_dump_to_file(cbm_store_t *s, const char *dest_path) {
     if (!bk) {
         store_set_error(s, "dump: backup init failed");
         sqlite3_close(dest_db);
-        (void)unlink(tmp_path);
+        (void)cbm_unlink(tmp_path);
         return CBM_STORE_ERR;
     }
 
@@ -1087,7 +1102,7 @@ int cbm_store_dump_to_file(cbm_store_t *s, const char *dest_path) {
     if (rc != SQLITE_DONE) {
         store_set_error(s, "dump: backup step failed");
         sqlite3_close(dest_db);
-        (void)unlink(tmp_path);
+        (void)cbm_unlink(tmp_path);
         return CBM_STORE_ERR;
     }
 
@@ -1097,9 +1112,9 @@ int cbm_store_dump_to_file(cbm_store_t *s, const char *dest_path) {
 
     /* Atomic rename: old WAL/SHM become stale and get recreated by
      * the next reader's configure_pragmas call. */
-    if (rename(tmp_path, dest_path) != 0) {
+    if (cbm_rename(tmp_path, dest_path) != 0) {
         store_set_error(s, "dump: rename failed");
-        (void)unlink(tmp_path);
+        (void)cbm_unlink(tmp_path);
         return CBM_STORE_ERR;
     }
 

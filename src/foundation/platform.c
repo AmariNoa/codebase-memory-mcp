@@ -106,7 +106,7 @@ int cbm_nprocs(void) {
 }
 
 bool cbm_file_exists(const char *path) {
-    wchar_t *wpath = cbm_utf8_to_wide(path);
+    wchar_t *wpath = cbm_utf8_to_wide_path(path);
     if (!wpath) {
         return false;
     }

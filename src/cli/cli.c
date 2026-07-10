@@ -2705,7 +2705,12 @@ cbm_config_t *cbm_config_open(const char *cache_dir) {
     mkdirp(cache_dir, DIR_PERMS);
 
     sqlite3 *db = NULL;
-    if (sqlite3_open(dbpath, &db) != SQLITE_OK) {
+    /* Normalize to a \\?\ extended-length path on Windows so a long CBM_CACHE_DIR
+     * (its "_config.db" full path exceeding MAX_PATH) still opens. */
+    char *cfg_norm = cbm_fs_longpath_utf8(dbpath);
+    int crc = sqlite3_open(cfg_norm ? cfg_norm : dbpath, &db);
+    free(cfg_norm);
+    if (crc != SQLITE_OK) {
         if (db) {
             sqlite3_close(db);
         }

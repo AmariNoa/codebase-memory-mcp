@@ -41,7 +41,7 @@ cbm_dir_t *cbm_opendir(const char *path) {
     if (!path) {
         return NULL;
     }
-    wchar_t *wpath = cbm_utf8_to_wide(path);
+    wchar_t *wpath = cbm_utf8_to_wide_path(path);
     if (!wpath) {
         return NULL;
     }
@@ -377,7 +377,7 @@ int cbm_pclose(FILE *f) {
 }
 
 FILE *cbm_fopen(const char *path, const char *mode) {
-    wchar_t *wpath = cbm_utf8_to_wide(path);
+    wchar_t *wpath = cbm_utf8_to_wide_path(path);
     if (!wpath) {
         return NULL;
     }
@@ -394,7 +394,7 @@ FILE *cbm_fopen(const char *path, const char *mode) {
 
 bool cbm_mkdir_p(const char *path, int mode) {
     (void)mode;
-    wchar_t *wpath = cbm_utf8_to_wide(path);
+    wchar_t *wpath = cbm_utf8_to_wide_path(path);
     if (!wpath) {
         return false;
     }
@@ -424,7 +424,7 @@ bool cbm_mkdir_p(const char *path, int mode) {
 }
 
 int cbm_unlink(const char *path) {
-    wchar_t *wpath = cbm_utf8_to_wide(path);
+    wchar_t *wpath = cbm_utf8_to_wide_path(path);
     if (!wpath) {
         return CBM_NOT_FOUND;
     }
@@ -434,13 +434,42 @@ int cbm_unlink(const char *path) {
 }
 
 int cbm_rmdir(const char *path) {
-    wchar_t *wpath = cbm_utf8_to_wide(path);
+    wchar_t *wpath = cbm_utf8_to_wide_path(path);
     if (!wpath) {
         return CBM_NOT_FOUND;
     }
     int ret = _wrmdir(wpath);
     free(wpath);
     return ret;
+}
+
+int cbm_rename(const char *src, const char *dst) {
+    wchar_t *wsrc = cbm_utf8_to_wide_path(src);
+    if (!wsrc) {
+        return -1;
+    }
+    wchar_t *wdst = cbm_utf8_to_wide_path(dst);
+    if (!wdst) {
+        free(wsrc);
+        return -1;
+    }
+    BOOL ok = MoveFileExW(wsrc, wdst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    free(wsrc);
+    free(wdst);
+    return ok ? 0 : -1;
+}
+
+char *cbm_fs_longpath_utf8(const char *path) {
+    if (!path) {
+        return NULL;
+    }
+    wchar_t *w = cbm_utf8_to_wide_path(path);
+    if (!w) {
+        return strdup(path);
+    }
+    char *u8 = cbm_wide_to_utf8(w);
+    free(w);
+    return u8 ? u8 : strdup(path);
 }
 
 /* Build a properly-quoted Windows command line from an argv array.
@@ -654,6 +683,14 @@ int cbm_pclose(FILE *f) {
 
 FILE *cbm_fopen(const char *path, const char *mode) {
     return fopen(path, mode);
+}
+
+int cbm_rename(const char *src, const char *dst) {
+    return rename(src, dst);
+}
+
+char *cbm_fs_longpath_utf8(const char *path) {
+    return path ? strdup(path) : NULL;
 }
 
 bool cbm_mkdir_p(const char *path, int mode) {

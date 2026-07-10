@@ -190,22 +190,12 @@ static int write_file_atomic(const char *path, const char *data, size_t len,
         return CBM_NOT_FOUND;
     }
 
-#ifdef _WIN32
-    /* MoveFileEx replace approach suggested by @Ayush7Ranjan in #492. */
-    if (!MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        DWORD saved_error = GetLastError();
-        cbm_unlink(tmp);
-        file_error_set(out_err, "rename_temp", (int)saved_error);
-        return CBM_NOT_FOUND;
-    }
-#else
-    if (rename(tmp, path) != 0) {
+    if (cbm_rename(tmp, path) != 0) {
         int saved_errno = errno;
         cbm_unlink(tmp);
         file_error_set(out_err, "rename_temp", saved_errno);
         return CBM_NOT_FOUND;
     }
-#endif
     return 0;
 }
 
@@ -444,7 +434,12 @@ static char *prepare_stripped_db(const char *db_path, size_t *out_size) {
     /* VACUUM INTO: clean compacted copy. Use raw sqlite3 to bypass store authorizer
      * (which blocks ATTACH, used internally by VACUUM INTO). */
     sqlite3 *raw_db = NULL;
-    if (sqlite3_open_v2(db_path, &raw_db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+    /* Normalize to a \\?\ extended-length path on Windows so a project DB under
+     * a long CBM_CACHE_DIR (full path exceeding MAX_PATH) can still be exported. */
+    char *src_norm = cbm_fs_longpath_utf8(db_path);
+    int orc = sqlite3_open_v2(src_norm ? src_norm : db_path, &raw_db, SQLITE_OPEN_READWRITE, NULL);
+    free(src_norm);
+    if (orc != SQLITE_OK) {
         const char *err = raw_db ? sqlite3_errmsg(raw_db) : "sqlite_open";
         artifact_export_fail("open_source_db", db_path, err, 0);
         sqlite3_close(raw_db);
@@ -700,7 +695,7 @@ int cbm_artifact_import(const char *repo_path, const char *cache_db_path) {
     cbm_store_close(store);
 
     /* Atomic rename to final path */
-    if (rename(tmp_path, cache_db_path) != 0) {
+    if (cbm_rename(tmp_path, cache_db_path) != 0) {
         cbm_log_error("artifact.import", "err", "rename_to_cache");
         cbm_unlink(tmp_path);
         return CBM_NOT_FOUND;

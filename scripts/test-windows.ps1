@@ -17,6 +17,8 @@
                       * test_hook_augment.py      guards #618      (fixed by #619)
                       * test_ui_drive_listing.py  guards #548      (roots field)
                       * test_cli_non_ascii_arg.py guards #423/#20  (wide-argv main())
+                      * test_long_cache_path.py   guards the long-path index crash
+                        (fixed by fix/win-longpath-index-crash)
 
       KNOWN REDS  - genuine, still-open Windows bugs reproduced at the product
                     surface. They are EXPECTED to be RED (exit 1) and are opt-in
@@ -106,7 +108,8 @@ $guards = @(
     "tests\windows\test_non_ascii_path.py",
     "tests\windows\test_hook_augment.py",
     "tests\windows\test_ui_drive_listing.py",
-    "tests\windows\test_cli_non_ascii_arg.py"
+    "tests\windows\test_cli_non_ascii_arg.py",
+    "tests\windows\test_long_cache_path.py"
 )
 
 # Opt-in known-red repros - EXPECTED red (exit 1); never gate CI. Currently empty:
