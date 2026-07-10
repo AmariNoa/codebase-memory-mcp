@@ -75,6 +75,49 @@ static inline wchar_t *cbm_win_prefix_longpath(wchar_t *full) {
     return full;
 }
 
+/* Lexically remove "." and ".." components in-place, starting after the root
+ * prefix of `root` wchars ("C:\" or "\\server\share\"). \\?\ paths bypass the
+ * Win32 normalization that resolved dot segments at the API boundary, so an
+ * absolute path like "...\wt\..\..\info\exclude" (a git worktree commondir
+ * join) must be canonicalized here. Same lexical semantics as
+ * GetFullPathNameW; ".." never pops past the root. */
+static inline void cbm_win_remove_dot_segments(wchar_t *w, size_t root) {
+    wchar_t *out = w + root;
+    const wchar_t *p = w + root;
+    while (*p) {
+        const wchar_t *comp = p;
+        while (*p && *p != L'\\') {
+            p++;
+        }
+        size_t clen = (size_t)(p - comp);
+        int has_sep = (*p == L'\\');
+        if (has_sep) {
+            p++;
+        }
+        if (clen == 1 && comp[0] == L'.') {
+            continue; /* drop "." */
+        }
+        if (clen == 2 && comp[0] == L'.' && comp[1] == L'.') {
+            if (out > w + root) { /* pop the previous component, not past root */
+                out--;
+                while (out > w + root && out[-1] != L'\\') {
+                    out--;
+                }
+            }
+            continue;
+        }
+        wmemmove(out, comp, clen);
+        out += clen;
+        if (has_sep) {
+            *out++ = L'\\';
+        }
+    }
+    if (out > w + root && out[-1] == L'\\') {
+        out--; /* trim trailing separator (keep it on the bare root) */
+    }
+    *out = L'\0';
+}
+
 /* Convert a UTF-8 filesystem path to a wide \\?\-prefixed extended-length path.
  * Use ONLY for path arguments; mode strings and command lines must use
  * cbm_utf8_to_wide. Returns a heap wide string (caller frees) or NULL on
@@ -115,6 +158,28 @@ static inline wchar_t *cbm_utf8_to_wide_path(const char *utf8) {
             *dst++ = *p;
         }
         *dst = L'\0';
+        /* Root prefix the dot-segment pass must not pop past: "C:\" for a
+         * drive path, "\\server\share\" for UNC. */
+        size_t root;
+        if (is_unc) {
+            const wchar_t *q = w + 2;
+            while (*q && *q != L'\\') {
+                q++; /* server */
+            }
+            if (*q) {
+                q++;
+                while (*q && *q != L'\\') {
+                    q++; /* share */
+                }
+                if (*q) {
+                    q++;
+                }
+            }
+            root = (size_t)(q - w);
+        } else {
+            root = 3;
+        }
+        cbm_win_remove_dot_segments(w, root);
         return cbm_win_prefix_longpath(w);
     }
     /* Relative or unusual shape (input within MAX_PATH): resolve to absolute via
