@@ -403,7 +403,9 @@ const char *cbm_app_local_dir(void) {
 
 const char *cbm_resolve_cache_dir(void) {
     static char buf[CBM_SZ_1K];
-    char tmp[CBM_SZ_256] = "";
+    /* CBM_CACHE_DIR can legitimately be a deep path; a 256-byte buffer silently
+     * truncated it (corrupting every derived DB path), so size it like buf. */
+    char tmp[CBM_SZ_1K] = "";
     cbm_safe_getenv("CBM_CACHE_DIR", tmp, sizeof(tmp), NULL);
     if (tmp[0]) {
         snprintf(buf, sizeof(buf), "%s", tmp);

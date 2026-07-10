@@ -68,12 +68,15 @@ def _mk(p):
 
 
 def build_long_cache_dir(work):
-    """Nest directories under `work` until the cache path is comfortably past
-    260 characters, so `<cache>/<slug>.db` is guaranteed to exceed MAX_PATH
-    regardless of how long the OS temp-dir prefix happens to be."""
+    """Nest directories under `work` until `<cache>/<slug>.db` exceeds
+    MAX_PATH(260), while keeping the cache path itself under 256 bytes so it is
+    not truncated when read into CBM_CACHE_DIR's buffer. The slug derived from
+    the repo path is ~60 chars, so a ~230-char cache yields a ~300-char DB
+    path — this reproduces the original bug (long DB path, short-ish cache)
+    rather than an unrelated env-buffer truncation."""
     cache = work
-    segment = "d" * 40
-    while len(cache) < 300:
+    segment = "d" * 20
+    while len(cache) < 230:
         cache = os.path.join(cache, segment)
         _mk(cache)
     return cache
@@ -100,9 +103,9 @@ def main():
     try:
         cache = build_long_cache_dir(work)
         print("cache dir length: %d" % len(cache))
-        if len(cache) < 260:
-            print("SETUP FAIL: could not construct a cache path >= 260 chars: %d"
-                  % len(cache))
+        if not (225 <= len(cache) < 256):
+            print("SETUP FAIL: cache path length %d outside [225,256) for this "
+                  "runner's temp prefix; adjust nesting" % len(cache))
             return 2
 
         repo = os.path.join(work, "repo")
